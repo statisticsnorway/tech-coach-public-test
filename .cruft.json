@@ -1,0 +1,17 @@
+{
+  "template": "https://github.com/statisticsnorway/ssb-project-template-stat",
+  "commit": "f917cbcb03543a7365911244a350d6640710aa47",
+  "checkout": "1.2.0",
+  "context": {
+    "cookiecutter": {
+      "full_name": "ssb-aei",
+      "email": "aei@ssb.no",
+      "project_name": "tech-coach-public-test",
+      "description": "Repo for testing automatic push of tags from an internal repo to a public repo.",
+      "license_year": "2025",
+      "_template": "https://github.com/statisticsnorway/ssb-project-template-stat",
+      "_commit": "f917cbcb03543a7365911244a350d6640710aa47"
+    }
+  },
+  "directory": null
+}
