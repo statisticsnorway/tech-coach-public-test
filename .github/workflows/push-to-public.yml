@@ -1,0 +1,166 @@
+name: Push to Public Repository
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  sync-to-publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Extract tag name
+        id: tag
+        run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        
+      - name: Create branch name
+        id: branch
+        run: echo "branch_name=b-${{ steps.tag.outputs.tag_name }}" >> $GITHUB_OUTPUT
+        
+      - name: Extract commit author information
+        id: author
+        run: |
+          AUTHOR_NAME=$(git show -s --format='%an' ${{ steps.tag.outputs.tag_name }})
+          AUTHOR_EMAIL=$(git show -s --format='%ae' ${{ steps.tag.outputs.tag_name }})
+          echo "author_name=$AUTHOR_NAME" >> $GITHUB_OUTPUT
+          echo "author_email=$AUTHOR_EMAIL" >> $GITHUB_OUTPUT
+        
+      - name: Verify target repository access
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_REPO_TOKEN }}
+        run: |
+          # Check if PUBLISH_REPO_TOKEN secret is set
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ ERROR: PUBLISH_REPO_TOKEN secret is not set"
+            echo ""
+            echo "Please add the PUBLISH_REPO_TOKEN secret to repository settings:"
+            echo "1. Go to Settings → Secrets and variables → Actions"
+            echo "2. Click 'New repository secret'"
+            echo "3. Name: PUBLISH_REPO_TOKEN"
+            echo "4. Value: Your GitHub Personal Access Token"
+            echo ""
+            echo "See SYNC_WORKFLOW_SETUP.md for detailed setup instructions."
+            exit 1
+          fi
+          
+          TARGET_REPO="${{ github.repository_owner }}/tech-coach-public-test"
+          echo "Verifying access to target repository: $TARGET_REPO"
+          
+          if ! gh repo view "$TARGET_REPO" > /dev/null 2>&1; then
+            echo "❌ ERROR: Cannot access target repository '$TARGET_REPO'"
+            echo ""
+            echo "Possible causes:"
+            echo "1. Repository '$TARGET_REPO' does not exist"
+            echo "2. PUBLISH_REPO_TOKEN secret is invalid or expired"
+            echo "3. Token does not have access to the target repository"
+            echo ""
+            echo "Please check:"
+            echo "- Repository exists: https://github.com/$TARGET_REPO"
+            echo "- PUBLISH_REPO_TOKEN secret is configured in repository settings"
+            echo "- Token has 'Contents' and 'Pull requests' permissions with 'Read and write' access"
+            echo ""
+            echo "See SYNC_WORKFLOW_SETUP.md for detailed setup instructions."
+            exit 1
+          fi
+          
+          echo "✅ Successfully verified access to target repository: $TARGET_REPO"
+        
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/tech-coach-public-test
+          token: ${{ secrets.PUBLISH_REPO_TOKEN }}
+          path: target-repo
+          fetch-depth: 0
+          
+      - name: Configure git
+        run: |
+          cd target-repo
+          git config user.name "${{ steps.author.outputs.author_name }}"
+          git config user.email "${{ steps.author.outputs.author_email }}"
+          
+      - name: Create and switch to new branch
+        run: |
+          cd target-repo
+          git checkout main
+          
+          # Check if branch already exists
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
+          if git show-ref --verify --quiet refs/heads/$BRANCH_NAME; then
+            echo "❌ ERROR: Branch '$BRANCH_NAME' already exists in the target repository"
+            echo ""
+            echo "This usually means a previous sync for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
+            echo ""
+            echo "To resolve this:"
+            echo "1. Delete the existing branch: git push origin --delete $BRANCH_NAME"
+            echo "2. Or use a different tag name"
+            echo ""
+            exit 1
+          fi
+          
+          # Check if branch exists on remote
+          if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+            echo "❌ ERROR: Branch '$BRANCH_NAME' already exists on remote"
+            echo ""
+            echo "This usually means a previous sync for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
+            echo ""
+            echo "To resolve this:"
+            echo "1. Delete the remote branch: git push origin --delete $BRANCH_NAME"
+            echo "2. Or use a different tag name"
+            echo ""
+            exit 1
+          fi
+          
+          echo "Creating new branch: $BRANCH_NAME"
+          git checkout -b $BRANCH_NAME
+          
+      - name: Copy content from source to target
+        run: |
+          # Remove existing content (except .git directory)
+          cd target-repo
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          
+          # Copy all content from source repository (excluding .git directory)
+          find .. -mindepth 1 -maxdepth 1 ! -name '.git' -exec cp -r {} . \;
+          
+      - name: Commit changes
+        run: |
+          cd target-repo
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Sync content from tag ${{ steps.tag.outputs.tag_name }}"
+          
+      - name: Push branch
+        run: |
+          cd target-repo
+          git push origin ${{ steps.branch.outputs.branch_name }}
+          
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_REPO_TOKEN }}
+        run: |
+          cd target-repo
+          PR_BODY="This PR syncs content from the tech-coach-internal-test repository with tag ${{ steps.tag.outputs.tag_name }}.
+          
+          **Tag:** ${{ steps.tag.outputs.tag_name }}
+          **Source Repository:** ${{ github.repository }}
+          **Triggered by:** ${{ github.actor }}
+          
+          Please review the changes before merging."
+          
+          PR_URL=$(gh pr create \
+            --repo ${{ github.repository_owner }}/tech-coach-public-test \
+            --title "Sync content from tag ${{ steps.tag.outputs.tag_name }}" \
+            --head "${{ steps.branch.outputs.branch_name }}" \
+            --base "main" \
+            --body "$PR_BODY")
+          echo "Created PR: $PR_URL"
