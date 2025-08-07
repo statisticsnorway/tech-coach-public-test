@@ -6,8 +6,8 @@
     "cookiecutter": {
       "full_name": "ssb-aei",
       "email": "aei@ssb.no",
-      "project_name": "tech-coach-public-test",
-      "description": "Repo for testing automatic push of tags from an internal repo to a public repo.",
+      "project_name": "tech-coach-internal-test",
+      "description": "",
       "license_year": "2025",
       "_template": "https://github.com/statisticsnorway/ssb-project-template-stat",
       "_commit": "847686b7d5e223a5c4fab9b43c9c7d91571f1b3e"
