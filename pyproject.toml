@@ -1,7 +1,7 @@
 [project]
-name = "tech-coach-public-test"
+name = "tech-coach-internal-test"
 version = "0.1.0"
-description = "Repo for testing automatic push of tags from an internal repo to a public repo."
+description = ""
 authors = [{name = "ssb-aei", email = "aei@ssb.no"}]
 license = "MIT"
 readme = "README.md"
