@@ -1,6 +1,7 @@
-# Sync Workflow Setup
+# Push to Public Repo Workflow Setup
 
-This document explains how to set up the GitHub Actions workflow that automatically syncs content from this repository to the `tech-coach-publish-test` repository when a tag is pushed.
+This document explains how to set up the GitHub Actions workflow that automatically pushes
+content from this repository to the `tech-coach-publish-test` repository when a tag is pushed.
 
 ## How it works
 
@@ -9,15 +10,13 @@ When a tag is pushed to this repository (`tech-coach-internal-test`), the workfl
 1. **Detects the tag push** - Triggers automatically on any tag creation
 2. **Creates a branch** - Creates a new branch in `tech-coach-publish-test` with name `b-{tag-name}`
 3. **Copies content** - Copies all repository content to the new branch
-4. **Creates a pull request** - Opens a PR from the new branch to `main` in the target repository
+4. **Creates a pull request** - Opens a PR from the new branch in the public repository
 
 ## Required Setup
 
 ### 1. Create a Personal Access Token (PAT)
 
-You need to create a GitHub Personal Access Token with the following permissions:
-- `repo` (Full control of private repositories)
-- `workflow` (Update GitHub Action workflows)
+You need to create a fine-grained GitHub Personal Access Token (PAT) by following these steps:
 
 **Steps:**
 1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
@@ -29,7 +28,7 @@ You need to create a GitHub Personal Access Token with the following permissions
    - `Contents`
    - `Pull requests`
    - `Workflows`
-7. Generate and copy the token
+7. Generate and copy the token.
 
 ### 2. Add Repository Secret
 
@@ -52,18 +51,18 @@ To trigger the sync workflow:
 
 1. Create and push a tag to this repository:
    ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
+   git tag 2025.08
+   git push origin 2025.08
    ```
 
 2. The workflow will automatically:
-   - Create branch `b-v1.0.0` in `tech-coach-publish-test`
+   - Create branch `b-2025.08` in `tech-coach-publish-test`
    - Copy all content from the tagged commit
    - Create a pull request for review
 
 ## Workflow File
 
-The workflow is defined in `.github/workflows/sync-to-publish.yml` and includes:
+The workflow is defined in `.github/workflows/publish-to-public-repo.yml` and includes:
 - Tag-based triggering
 - Content synchronization
 - Automated PR creation
