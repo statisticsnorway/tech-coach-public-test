@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  push-to-public:
+  push-to-public-repo:
     runs-on: ubuntu-latest
     
     steps:
@@ -35,7 +35,32 @@ jobs:
           AUTHOR_EMAIL=$(git show -s --format='%ae' ${{ steps.tag.outputs.tag_name }})
           echo "author_name=$AUTHOR_NAME" >> $GITHUB_OUTPUT
           echo "author_email=$AUTHOR_EMAIL" >> $GITHUB_OUTPUT
-        
+
+      - name: Find previous tag in internal repository
+        id: previous_tag
+        run: |
+          cd internal
+          CURRENT_TAG="${{ steps.tag.outputs.tag_name }}"
+          echo "Looking for previous tag before: $CURRENT_TAG"
+          
+          # Get the commit hash of the current tag
+          CURRENT_COMMIT=$(git rev-list -n 1 $CURRENT_TAG)
+          echo "Current tag commit: $CURRENT_COMMIT"
+          
+          # Find the previous tag by traversing the commit history
+          # We exclude the current tag and look for the first tag we encounter
+          PREVIOUS_TAG=$(git tag --sort=-version:refname --merged $CURRENT_COMMIT | grep -v "^$CURRENT_TAG$" | head -n 1)
+          
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Found previous tag: $PREVIOUS_TAG"
+            echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+            echo "use_main=false" >> $GITHUB_OUTPUT
+          else
+            echo "No previous tag found, will use main branch"
+            echo "previous_tag=" >> $GITHUB_OUTPUT
+            echo "use_main=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Verify target repository access
         env:
           GH_TOKEN: ${{ secrets.PUBLISH_REPO_TOKEN }}
@@ -75,7 +100,7 @@ jobs:
           fi
           
           echo "✅ Successfully verified access to target repository: $TARGET_REPO"
-        
+
       - name: Checkout target repository
         uses: actions/checkout@v4
         with:
@@ -99,7 +124,7 @@ jobs:
           if git show-ref --verify --quiet refs/heads/$BRANCH_NAME; then
             echo "❌ ERROR: Branch '$BRANCH_NAME' already exists in the target repository"
             echo ""
-            echo "This usually means a previous sync for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
+            echo "This usually means a previous push for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
             echo ""
             echo "To resolve this:"
             echo "1. Delete the existing branch: git push origin --delete $BRANCH_NAME"
@@ -112,7 +137,7 @@ jobs:
           if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
             echo "❌ ERROR: Branch '$BRANCH_NAME' already exists on remote"
             echo ""
-            echo "This usually means a previous sync for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
+            echo "This usually means a previous push for tag '${{ steps.tag.outputs.tag_name }}' was already performed."
             echo ""
             echo "To resolve this:"
             echo "1. Delete the remote branch: git push origin --delete $BRANCH_NAME"
@@ -121,8 +146,26 @@ jobs:
             exit 1
           fi
           
-          echo "Creating new branch: $BRANCH_NAME"
-          git switch -c $BRANCH_NAME
+          # Determine the base for the new branch
+          if [ "${{ steps.previous_tag.outputs.use_main }}" = "true" ]; then
+            echo "No previous tag found, branching from main"
+            BASE_REF="main"
+          else
+            PREVIOUS_TAG="${{ steps.previous_tag.outputs.previous_tag }}"
+            echo "Previous tag found: $PREVIOUS_TAG, checking if it exists in public repo"
+            
+            # Check if the previous tag exists in the public repository
+            if git tag -l "$PREVIOUS_TAG" | grep -q "^$PREVIOUS_TAG$"; then
+              echo "Previous tag $PREVIOUS_TAG exists in public repo, branching from it"
+              BASE_REF="$PREVIOUS_TAG"
+            else
+              echo "Previous tag $PREVIOUS_TAG does not exist in public repo, branching from main"
+              BASE_REF="main"
+            fi
+          fi
+          
+          echo "Creating new branch: $BRANCH_NAME from $BASE_REF"
+          git switch -c $BRANCH_NAME $BASE_REF
           
       - name: Copy content from source to target
         run: |
@@ -134,8 +177,8 @@ jobs:
           cd ../internal
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec cp -r {} ../public/ \;
           
-          # Remove the push-to-public.yaml from the public repository
-          rm .github/workflows/push-to-public.yml          
+          # Remove the push-to-public-repo.yml from the public repository
+          rm .github/workflows/push-to-public-repo.yml          
           
       - name: Commit changes
         run: |
@@ -159,7 +202,7 @@ jobs:
           cd public
           PR_BODY="This PR pushes content from the tech-coach-internal-test repository with tag ${{ steps.tag.outputs.tag_name }}.
           
-          **Tag:** ${{ steps.tag.outputs.tag_name }}
+          **Internal Tag:** ${{ steps.tag.outputs.tag_name }}
           **Source Repository:** ${{ github.repository }}
           **Triggered by:** ${{ github.actor }}
           
