@@ -1,0 +1,80 @@
+name: Auto-tag on PR merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract tag from PR body
+        id: extract_tag
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          echo "PR Body:"
+          echo "$PR_BODY"
+          echo "---"
+
+          # Extract tag from PR body format: "**Internal Tag:** v1.0.0"
+          if [[ "$PR_BODY" =~ \*\*Internal\ Tag:\*\*\ ([^[:space:]]+) ]]; then
+            TAG_NAME="${BASH_REMATCH[1]}"
+            echo "Extracted real tag from internal repo: $TAG_NAME"
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "has_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "No internal tag found in PR body"
+            echo "has_tag=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No tag information found in PR body - skipping auto-tagging"
+          fi
+
+      - name: Checkout repository
+        if: steps.extract_tag.outputs.has_tag == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag already exists
+        if: steps.extract_tag.outputs.has_tag == 'true'
+        id: check_tag
+        run: |
+          TAG_NAME="${{ steps.extract_tag.outputs.tag_name }}"
+          if git tag -l "$TAG_NAME" | grep -q "^$TAG_NAME$"; then
+            echo "Tag $TAG_NAME already exists"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "ℹ️ Tag ${{ steps.extract_tag.outputs.tag_name }} already exists - skipping creation"
+          else
+            echo "Tag $TAG_NAME does not exist"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag
+        if: steps.extract_tag.outputs.has_tag == 'true' && steps.check_tag.outputs.tag_exists == 'false'
+        run: |
+          TAG_NAME="${{ steps.extract_tag.outputs.tag_name }}"
+          MERGE_COMMIT="${{ github.event.pull_request.merge_commit_sha }}"
+
+          echo "Creating tag $TAG_NAME on commit $MERGE_COMMIT"
+
+          # Extract author information from merge commit
+          AUTHOR_NAME=$(git log -1 --format='%an' "$MERGE_COMMIT")
+          AUTHOR_EMAIL=$(git log -1 --format='%ae' "$MERGE_COMMIT")
+
+          echo "Using author: $AUTHOR_NAME <$AUTHOR_EMAIL>"
+
+          # Configure git with merge commit author
+          git config user.name "$AUTHOR_NAME"
+          git config user.email "$AUTHOR_EMAIL"
+
+          # Create and push the tag
+          git tag -a "$TAG_NAME" "$MERGE_COMMIT" -m "Auto-tagged from internal repository tag $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+          echo "✅ Auto-tagging completed for tag: $TAG_NAME"
